@@ -28,7 +28,7 @@
  * DEFINES
  *********************************************************/
 #define VERSION_MAJOR   2
-#define VERSION_MINOR   2
+#define VERSION_MINOR   4
 #define VERSION_PATCH   0
 
 #define FAN_ADDRESS     0xF0    // depending on the dip switches of the original remote control
@@ -131,7 +131,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <body>
 <center>
   <h2>Aeratron Fan Control</h2>
-  <p><small>MGKOENIG 2020<br>(Version 2.2)</small></p><br>
+  <p><small>MGKOENIG 2020<br>(Version %UI_VERSION%)</small></p><br>
   %CONTROL_PANEL%
 </center>
 </body>
@@ -140,6 +140,16 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 String panel_builder(const String& var){
   //Serial.println(var);
+
+  if(var == "UI_VERSION"){
+    String ui_version = "";
+    ui_version += VERSION_MAJOR;
+    ui_version += ".";
+    ui_version += VERSION_MINOR;
+
+    return ui_version;
+  }
+  
   if(var == "CONTROL_PANEL"){
     String panel = "";
 
@@ -168,34 +178,34 @@ String panel_builder(const String& var){
     }
 
     if ((fan_ctrl & 0x0F) == FAN_SPEED_1) {
-        panel += "<button class=\"btn_speed\" title=\"55rpm - 4.4W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/1';\">1</button>";
+        panel += "<button class=\"btn_speed\" title=\"55rpm (4.4W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/1';\">1</button>";
     } else {
-        panel += "<button class=\"btn_speed\" title=\"55rpm - 4.4W\" onclick=\"window.location.href='/fan/1';\">1</button>"; 
+        panel += "<button class=\"btn_speed\" title=\"55rpm (4.4W)\" onclick=\"window.location.href='/fan/1';\">1</button>"; 
     
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_2) {
-        panel += "<button class=\"btn_speed\" title=\"85rpm - 5.6W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/2';\">2</button>";
+        panel += "<button class=\"btn_speed\" title=\"85rpm (5.6W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/2';\">2</button>";
     } else {
-        panel += "<button class=\"btn_speed\" title=\"85rpm - 5.6W\" onclick=\"window.location.href='/fan/2';\">2</button>";  
+        panel += "<button class=\"btn_speed\" title=\"85rpm (5.6W)\" onclick=\"window.location.href='/fan/2';\">2</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_3) {
-        panel += "<button class=\"btn_speed\" title=\"110rpm - 7.6W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/3';\">3</button>";
+        panel += "<button class=\"btn_speed\" title=\"110rpm (7.6W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/3';\">3</button>";
     } else {
-        panel += "<button class=\"btn_speed\" title=\"110rpm - 7.6W\" onclick=\"window.location.href='/fan/3';\">3</button>";  
+        panel += "<button class=\"btn_speed\" title=\"110rpm (7.6W)\" onclick=\"window.location.href='/fan/3';\">3</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_4) {
-       panel += "<button class=\"btn_speed\" title=\"130rpm - 10.1W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/4';\">4</button>";
+       panel += "<button class=\"btn_speed\" title=\"130rpm (10.1W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/4';\">4</button>";
     } else {
-       panel += "<button class=\"btn_speed\" title=\"130rpm - 10.1W\" onclick=\"window.location.href='/fan/4';\">4</button>";  
+       panel += "<button class=\"btn_speed\" title=\"130rpm (10.1W)\" onclick=\"window.location.href='/fan/4';\">4</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_5) {
-       panel += "<button class=\"btn_speed\" title=\"155rpm - 13W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/5';\">5</button>";
+       panel += "<button class=\"btn_speed\" title=\"155rpm (13W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/5';\">5</button>";
     } else {
-       panel += "<button class=\"btn_speed\" title=\"155rpm - 13W\" onclick=\"window.location.href='/fan/5';\">5</button>";  
+       panel += "<button class=\"btn_speed\" title=\"155rpm (13W)\" onclick=\"window.location.href='/fan/5';\">5</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_6) {
-       panel += "<button class=\"btn_speed\" title=\"185rpm - 17.3W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/6';\">6</button>";
+       panel += "<button class=\"btn_speed\" title=\"185rpm (17.3W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/6';\">6</button>";
     } else {
-       panel += "<button class=\"btn_speed\" title=\"185rpm - 17.3W\" onclick=\"window.location.href='/fan/6';\">6</button>";          
+       panel += "<button class=\"btn_speed\" title=\"185rpm (17.3W)\" onclick=\"window.location.href='/fan/6';\">6</button>";          
     }    
     
     return panel;
@@ -209,6 +219,7 @@ String panel_builder(const String& var){
  *********************************************************/
 void setup(){
   char header[50];
+  uint8_t attempts = 0;
   Serial.begin(115200);
 
   snprintf(header, 50, "Aeratron Remote Web Client (Firmware: %d.%d)", VERSION_MAJOR, VERSION_MINOR);
@@ -251,9 +262,14 @@ void setup(){
   Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
  
-  while (WiFi.status() != WL_CONNECTED) {
+  while ((WiFi.status() != WL_CONNECTED) && (attempts < 10)) {
     delay(500);
     Serial.print(".");
+    attempts++;
+  }
+  if (WiFi.status() != WL_CONNECTED){
+    Serial.println("Resetting ESP...");
+    ESP.restart();
   }
   Serial.println(" Done.");
 
@@ -341,6 +357,35 @@ void setup(){
  * LOOP
  *********************************************************/
 void loop() {
+  wl_status_t wifi_state;
+  uint8_t err_cnt = 0;
+
+  //Serial.print("Checking WiFI state... ");
+  wifi_state = WiFi.status();  
+
+  switch (wifi_state)
+  {
+    case WL_CONNECTED: err_cnt = 0; 
+    case WL_NO_SHIELD:
+    case WL_IDLE_STATUS:
+    case WL_NO_SSID_AVAIL:
+    case WL_SCAN_COMPLETED: 
+    case WL_CONNECT_FAILED: break;
+    case WL_CONNECTION_LOST:
+    case WL_DISCONNECTED: err_cnt++; break;
+    default: break;
+  }
+
+  // No connection for more than 20 sec. Restart ESP.
+  if (err_cnt > 4)
+  {
+    Serial.println("An error occurred. Resetting ESP!");
+    ESP.restart();
+  }
+
+  //Serial.print("Error count: ");
+  //Serial.println(err_cnt);
+  delay(5000);  
 }
 
 

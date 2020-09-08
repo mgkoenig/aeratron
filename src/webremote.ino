@@ -21,13 +21,14 @@
 #include "WiFi.h"
 #include "AsyncTCP.h"
 #include "ESPAsyncWebServer.h"
+#include "SPIFFS.h"
 
 
 /**********************************************************
  * DEFINES
  *********************************************************/
 #define VERSION_MAJOR   2
-#define VERSION_MINOR   0
+#define VERSION_MINOR   1
 #define VERSION_PATCH   0
 
 #define FAN_ADDRESS     0xF0    // depending on the dip switches of the original remote control
@@ -233,6 +234,20 @@ void setup(){
   pinMode(DATA_PIN, OUTPUT);
   Serial.println(" Done.");
 
+  Serial.print("Looking for favicon.. ");
+  if (SPIFFS.exists("/favicon.png")) {
+      Serial.println(" Found.");
+  }
+  else 
+    Serial.println(" Error: Favicon not found!");
+
+  Serial.print("Looking for touchicon.. ");
+  if (SPIFFS.exists("/touchicon.png")) {
+      Serial.println(" Found.");
+  }
+  else 
+    Serial.println(" Error: Touchicon not found!");
+ 
   Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
  
@@ -250,6 +265,14 @@ void setup(){
     request->send_P(200, "text/html", index_html, panel_builder);
   });
  
+  server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SPIFFS, "/favicon.png", "image/png");
+  });
+
+  server.on("/apple-touch-icon.png", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SPIFFS, "/touchicon.png", "image/png");
+  });
+  
   server.on("/fan/on", HTTP_GET, [](AsyncWebServerRequest *request){
     set_speed(FAN_SPEED_ON);
     request->send_P(200, "text/html", index_html, panel_builder);

@@ -22,24 +22,29 @@
 #include "AsyncTCP.h"
 #include "ESPAsyncWebServer.h"
 #include "SPIFFS.h"
+#include "time.h"
 
 
 /**********************************************************
  * DEFINES
  *********************************************************/
-#define VERSION_MAJOR   2
-#define VERSION_MINOR   5
-#define VERSION_PATCH   0
+#define VERSION_MAJOR     2
+#define VERSION_MINOR     6
+#define VERSION_PATCH     0
 
-#define FAN_ADDRESS     0xF0    // depending on the dip switches of the original remote control
-#define DATA_PIN        27      // gpio 27
+#define FAN_ADDRESS       0xF0    // depending on the dip switches of the original remote control
+#define DATA_PIN          27      // gpio 27
+
+#define GMT_OFFSET        0       // given in seconds (3600 for GMT+1)
+#define DAYLIGHT_OFFSET   0       // given in seconds (3600 for +1h summer time)
 
 
 /**********************************************************
  * GLOBALS
  *********************************************************/
-const char* ssid     = "YOUR_SSID";
-const char* password = "YOUR_PASSWORD";
+const char* ssid      = "YOUR_SSID";
+const char* password  = "YOUR_PASSWORD";
+const char* ntpServer = "pool.ntp.org";
 
 AsyncWebServer server(80);
 
@@ -79,13 +84,14 @@ void set_light(enum light_state);
 void set_speed(enum fan_speed);
 void set_direction(enum fan_direction);
 void send_command();
+void printLocalTime();
+String get_ui_date();
 
 
 /**********************************************************
  * WEB PAGE
  *********************************************************/
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE html> 
+const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html> 
 <html> 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style> 
@@ -131,7 +137,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <body>
 <center>
   <h2>Aeratron Fan Control</h2>
-  <p><small>&copy; MGKOENIG 2020<br>(Version %UI_VERSION%)</small></p><br>
+  <p><small>&copy; MGKOENIG 2020<br>(Version %UI_VERSION%)<br>%UI_DATE%</small></p><br>
   %CONTROL_PANEL%
 </center>
 </body>
@@ -141,8 +147,17 @@ const char index_html[] PROGMEM = R"rawliteral(
 String panel_builder(const String& var){
   //Serial.println(var);
 
+  if(var == "UI_DATE"){
+    String ui_date = "";
+
+    ui_date = get_ui_date();
+
+    return ui_date;
+  }
+
   if(var == "UI_VERSION"){
     String ui_version = "";
+    
     ui_version += VERSION_MAJOR;
     ui_version += ".";
     ui_version += VERSION_MINOR;
@@ -157,58 +172,77 @@ String panel_builder(const String& var){
 
     if ((fan_ctrl & 0x0F) == FAN_SPEED_OFF) {
         panel += "<button class=\"btn_state\" onclick=\"window.location.href='/fan/on';\">Fan ON</button>";
+        panel += '\n';
         panel += "<button class=\"btn_state\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/0';\">Fan OFF</button><br>";
     } else {
         panel += "<button class=\"btn_state\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/on';\">Fan ON</button>";
+        panel += '\n';
         panel += "<button class=\"btn_state\" onclick=\"window.location.href='/fan/0';\">Fan OFF</button><br>";
     }
-
+    
+    panel += '\n';
     if (light_ctrl == LIGHT_STATE_ON) {
         panel += "<button class=\"btn_state\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/light/on';\">Light ON</button>";
+        panel += '\n';
         panel += "<button class=\"btn_state\" onclick=\"window.location.href='/light/off';\">Light OFF</button><br>";
     } else {
         panel += "<button class=\"btn_state\" onclick=\"window.location.href='/light/on';\">Light ON</button>";
+        panel += '\n';
         panel += "<button class=\"btn_state\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/light/off';\">Light OFF</button><br>"; 
     }
-
+    
+    panel += '\n';
     if ((fan_ctrl & 0xF0) == FAN_DIRECTION_LEFT) {
         panel += "<button class=\"btn_state\" title=\"Summer Season\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/left';\">Rotate Left</button>";
+        panel += '\n';
         panel += "<button class=\"btn_state\" title=\"Winter Season\" onclick=\"window.location.href='/fan/right';\">Rotate Right</button><br>";
     } else {
         panel += "<button class=\"btn_state\" title=\"Summer Season\" onclick=\"window.location.href='/fan/left';\">Rotate Left</button>";
+        panel += '\n';
         panel += "<button class=\"btn_state\" title=\"Winter Season\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/right';\">Rotate Right</button><br>";
     }
-
+    
+    panel += '\n';
     if ((fan_ctrl & 0x0F) == FAN_SPEED_1) {
         panel += "<button class=\"btn_speed\" title=\"55rpm (4.4W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/1';\">1</button>";
     } else {
-        panel += "<button class=\"btn_speed\" title=\"55rpm (4.4W)\" onclick=\"window.location.href='/fan/1';\">1</button>"; 
+        panel += "<button class=\"btn_speed\" title=\"55rpm (4.4W)\" onclick=\"window.location.href='/fan/1';\">1</button>";     
+    } 
     
-    } if ((fan_ctrl & 0x0F) == FAN_SPEED_2) {
+    panel += '\n';    
+    if ((fan_ctrl & 0x0F) == FAN_SPEED_2) {
         panel += "<button class=\"btn_speed\" title=\"85rpm (5.6W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/2';\">2</button>";
     } else {
-        panel += "<button class=\"btn_speed\" title=\"85rpm (5.6W)\" onclick=\"window.location.href='/fan/2';\">2</button>";  
-        
-    } if ((fan_ctrl & 0x0F) == FAN_SPEED_3) {
+        panel += "<button class=\"btn_speed\" title=\"85rpm (5.6W)\" onclick=\"window.location.href='/fan/2';\">2</button>";          
+    }     
+    
+    panel += '\n';    
+    if ((fan_ctrl & 0x0F) == FAN_SPEED_3) {
         panel += "<button class=\"btn_speed\" title=\"110rpm (7.6W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/3';\">3</button>";
     } else {
-        panel += "<button class=\"btn_speed\" title=\"110rpm (7.6W)\" onclick=\"window.location.href='/fan/3';\">3</button>";  
-        
-    } if ((fan_ctrl & 0x0F) == FAN_SPEED_4) {
+        panel += "<button class=\"btn_speed\" title=\"110rpm (7.6W)\" onclick=\"window.location.href='/fan/3';\">3</button>";          
+    } 
+    
+    panel += '\n';    
+    if ((fan_ctrl & 0x0F) == FAN_SPEED_4) {
        panel += "<button class=\"btn_speed\" title=\"130rpm (10.1W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/4';\">4</button>";
     } else {
-       panel += "<button class=\"btn_speed\" title=\"130rpm (10.1W)\" onclick=\"window.location.href='/fan/4';\">4</button>";  
-        
-    } if ((fan_ctrl & 0x0F) == FAN_SPEED_5) {
+       panel += "<button class=\"btn_speed\" title=\"130rpm (10.1W)\" onclick=\"window.location.href='/fan/4';\">4</button>";          
+    } 
+    
+    panel += '\n';    
+    if ((fan_ctrl & 0x0F) == FAN_SPEED_5) {
        panel += "<button class=\"btn_speed\" title=\"155rpm (13W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/5';\">5</button>";
     } else {
-       panel += "<button class=\"btn_speed\" title=\"155rpm (13W)\" onclick=\"window.location.href='/fan/5';\">5</button>";  
-        
-    } if ((fan_ctrl & 0x0F) == FAN_SPEED_6) {
+       panel += "<button class=\"btn_speed\" title=\"155rpm (13W)\" onclick=\"window.location.href='/fan/5';\">5</button>";          
+    } 
+    
+    panel += '\n';    
+    if ((fan_ctrl & 0x0F) == FAN_SPEED_6) {
        panel += "<button class=\"btn_speed\" title=\"185rpm (17.3W)\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/6';\">6</button>";
     } else {
        panel += "<button class=\"btn_speed\" title=\"185rpm (17.3W)\" onclick=\"window.location.href='/fan/6';\">6</button>";          
-    }    
+    }   
     
     return panel;
   }
@@ -277,6 +311,10 @@ void setup(){
 
   Serial.print("Server address: ");
   Serial.println(WiFi.localIP());
+
+  // init and get the time
+  configTime(GMT_OFFSET, DAYLIGHT_OFFSET, ntpServer);
+  printLocalTime();
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     //request->send(200, "text/plain", "Main Page.");
@@ -473,4 +511,31 @@ void send_command ()
       }
       delay(10);  
     }
+}
+
+void printLocalTime()
+{
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+}
+
+String get_ui_date()
+{
+  char timeStringBuff[50];
+  struct tm timeinfo;
+  
+  if(!getLocalTime(&timeinfo)){
+    String err = "No time available";
+    return err;
+  }
+  else
+  {
+    strftime(timeStringBuff, sizeof(timeStringBuff), "%A, %d. %B %Y", &timeinfo);
+    String time_string(timeStringBuff);
+    return time_string;
+  }
 }

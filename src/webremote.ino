@@ -28,7 +28,7 @@
  * DEFINES
  *********************************************************/
 #define VERSION_MAJOR   2
-#define VERSION_MINOR   4
+#define VERSION_MINOR   5
 #define VERSION_PATCH   0
 
 #define FAN_ADDRESS     0xF0    // depending on the dip switches of the original remote control
@@ -131,7 +131,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <body>
 <center>
   <h2>Aeratron Fan Control</h2>
-  <p><small>MGKOENIG 2020<br>(Version %UI_VERSION%)</small></p><br>
+  <p><small>&copy; MGKOENIG 2020<br>(Version %UI_VERSION%)</small></p><br>
   %CONTROL_PANEL%
 </center>
 </body>
@@ -146,6 +146,8 @@ String panel_builder(const String& var){
     ui_version += VERSION_MAJOR;
     ui_version += ".";
     ui_version += VERSION_MINOR;
+    ui_version += " | ";
+    ui_version += "<a href=\"/changelog\">Changelog</a>";
 
     return ui_version;
   }
@@ -287,6 +289,10 @@ void setup(){
 
   server.on("/apple-touch-icon.png", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/touchicon.png", "image/png");
+  });
+
+  server.on("/changelog", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(SPIFFS, "/changelog.html", "text/html");
   });
   
   server.on("/fan/on", HTTP_GET, [](AsyncWebServerRequest *request){

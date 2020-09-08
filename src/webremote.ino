@@ -28,7 +28,7 @@
  * DEFINES
  *********************************************************/
 #define VERSION_MAJOR   2
-#define VERSION_MINOR   1
+#define VERSION_MINOR   2
 #define VERSION_PATCH   0
 
 #define FAN_ADDRESS     0xF0    // depending on the dip switches of the original remote control
@@ -131,7 +131,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <body>
 <center>
   <h2>Aeratron Fan Control</h2>
-  <p><small>MGKOENIG 2020<br>(Version 2.0)</small></p><br>
+  <p><small>MGKOENIG 2020<br>(Version 2.2)</small></p><br>
   %CONTROL_PANEL%
 </center>
 </body>
@@ -160,42 +160,42 @@ String panel_builder(const String& var){
     }
 
     if ((fan_ctrl & 0xF0) == FAN_DIRECTION_LEFT) {
-        panel += "<button class=\"btn_state\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/left';\">Left (Summer)</button>";
-        panel += "<button class=\"btn_state\" onclick=\"window.location.href='/fan/right';\">Right (Winter)</button><br>";
+        panel += "<button class=\"btn_state\" title=\"Summer Season\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/left';\">Rotate Left</button>";
+        panel += "<button class=\"btn_state\" title=\"Winter Season\" onclick=\"window.location.href='/fan/right';\">Rotate Right</button><br>";
     } else {
-        panel += "<button class=\"btn_state\" onclick=\"window.location.href='/fan/left';\">Left (Summer)</button>";
-        panel += "<button class=\"btn_state\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/right';\">Right (Winter)</button><br>";
+        panel += "<button class=\"btn_state\" title=\"Summer Season\" onclick=\"window.location.href='/fan/left';\">Rotate Left</button>";
+        panel += "<button class=\"btn_state\" title=\"Winter Season\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/right';\">Rotate Right</button><br>";
     }
 
     if ((fan_ctrl & 0x0F) == FAN_SPEED_1) {
-        panel += "<button class=\"btn_speed\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/1';\">1</button>";
+        panel += "<button class=\"btn_speed\" title=\"55rpm - 4.4W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/1';\">1</button>";
     } else {
-        panel += "<button class=\"btn_speed\" onclick=\"window.location.href='/fan/1';\">1</button>"; 
+        panel += "<button class=\"btn_speed\" title=\"55rpm - 4.4W\" onclick=\"window.location.href='/fan/1';\">1</button>"; 
     
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_2) {
-        panel += "<button class=\"btn_speed\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/2';\">2</button>";
+        panel += "<button class=\"btn_speed\" title=\"85rpm - 5.6W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/2';\">2</button>";
     } else {
-        panel += "<button class=\"btn_speed\" onclick=\"window.location.href='/fan/2';\">2</button>";  
+        panel += "<button class=\"btn_speed\" title=\"85rpm - 5.6W\" onclick=\"window.location.href='/fan/2';\">2</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_3) {
-        panel += "<button class=\"btn_speed\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/3';\">3</button>";
+        panel += "<button class=\"btn_speed\" title=\"110rpm - 7.6W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/3';\">3</button>";
     } else {
-        panel += "<button class=\"btn_speed\" onclick=\"window.location.href='/fan/3';\">3</button>";  
+        panel += "<button class=\"btn_speed\" title=\"110rpm - 7.6W\" onclick=\"window.location.href='/fan/3';\">3</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_4) {
-       panel += "<button class=\"btn_speed\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/4';\">4</button>";
+       panel += "<button class=\"btn_speed\" title=\"130rpm - 10.1W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/4';\">4</button>";
     } else {
-       panel += "<button class=\"btn_speed\" onclick=\"window.location.href='/fan/4';\">4</button>";  
+       panel += "<button class=\"btn_speed\" title=\"130rpm - 10.1W\" onclick=\"window.location.href='/fan/4';\">4</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_5) {
-       panel += "<button class=\"btn_speed\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/5';\">5</button>";
+       panel += "<button class=\"btn_speed\" title=\"155rpm - 13W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/5';\">5</button>";
     } else {
-       panel += "<button class=\"btn_speed\" onclick=\"window.location.href='/fan/5';\">5</button>";  
+       panel += "<button class=\"btn_speed\" title=\"155rpm - 13W\" onclick=\"window.location.href='/fan/5';\">5</button>";  
         
     } if ((fan_ctrl & 0x0F) == FAN_SPEED_6) {
-       panel += "<button class=\"btn_speed\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/6';\">6</button>";
+       panel += "<button class=\"btn_speed\" title=\"185rpm - 17.3W\" style=\"background-color:#4CAF50\" onclick=\"window.location.href='/fan/6';\">6</button>";
     } else {
-       panel += "<button class=\"btn_speed\" onclick=\"window.location.href='/fan/6';\">6</button>";          
+       panel += "<button class=\"btn_speed\" title=\"185rpm - 17.3W\" onclick=\"window.location.href='/fan/6';\">6</button>";          
     }    
     
     return panel;
@@ -384,39 +384,42 @@ void set_speed (enum fan_speed fs)
 
 void send_command ()
 {
-  int i, j, k;
+  int i, j, k, l;
   char fan_command[3];
 
   fan_command[0] = FAN_ADDRESS;
   fan_command[1] = fan_ctrl;
   fan_command[2] = light_ctrl;
 
-  // repeat each message 5 times
-  for (k=0; k<10; k++) {
-      // Start bit
-      digitalWrite(DATA_PIN, LOW);      // sets the pin on
-      delayMicroseconds(500);     
-      digitalWrite(DATA_PIN, HIGH);     // sets the pin off
-      delayMicroseconds(1000);    
-      
-      for (j=0; j<3; j++) {
-        for (i=7; i>=0; i--) {
-          if (fan_command[j] & (1 << i)) {
-            digitalWrite(DATA_PIN, LOW);      
-            delayMicroseconds(500);     
-            digitalWrite(DATA_PIN, HIGH);     
-            delayMicroseconds(1000);    
-          }
-          else {
-            digitalWrite(DATA_PIN, LOW);      
-            delayMicroseconds(1000);     
-            digitalWrite(DATA_PIN, HIGH);     
-            delayMicroseconds(500);   
+  // repeat each message 3x7 times
+  for (l=0; l<3; l++) {
+    for (k=0; k<7; k++) {
+        // Start bit
+        digitalWrite(DATA_PIN, LOW);          // sets the pin on
+        delayMicroseconds(500);     
+        digitalWrite(DATA_PIN, HIGH);         // sets the pin off
+        delayMicroseconds(1000);    
+        
+        for (j=0; j<3; j++) {                 // for each command byte
+          for (i=7; i>=0; i--) {              // each bit within the current byte (MSB first)
+            if (fan_command[j] & (1 << i)) {  // sending a logic 1
+              digitalWrite(DATA_PIN, LOW);      
+              delayMicroseconds(500);     
+              digitalWrite(DATA_PIN, HIGH);     
+              delayMicroseconds(1000);    
+            }
+            else {                            // or sending a logic 0
+              digitalWrite(DATA_PIN, LOW);      
+              delayMicroseconds(1000);     
+              digitalWrite(DATA_PIN, HIGH);     
+              delayMicroseconds(500);   
+            }
           }
         }
+    
+        digitalWrite(DATA_PIN, LOW); 
+        delay(6);  
       }
-  
-      digitalWrite(DATA_PIN, LOW); 
-      delay(6);  
+      delay(10);  
     }
 }

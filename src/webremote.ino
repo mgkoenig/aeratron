@@ -31,7 +31,7 @@
  *********************************************************/
 #define VERSION_MAJOR     2
 #define VERSION_MINOR     7
-#define VERSION_PATCH     4
+#define VERSION_PATCH     8
 
 #define FAN_ADDRESS       0xF0
 #define DATA_PIN          27
@@ -39,8 +39,6 @@
 
 #define GMT_OFFSET        0       // given in seconds (3600 for GMT+1)
 #define DAYLIGHT_OFFSET   0       // given in seconds (3600 for +1h summer time)
-
-#define UINT32_MAX        ((uint32_t)-1)
 
 
 /**********************************************************
@@ -56,6 +54,8 @@ File syslogJsonFile;
 
 char fan_ctrl;
 char light_ctrl;
+uint8_t err_cnt;
+uint8_t err_msg;
 
 
 /**********************************************************
@@ -89,6 +89,12 @@ enum time_format {
   TIMEFORMAT_DATE_SHORT,
   TIMEFORMAT_TIME, 
   TIMEFORMAT_DATETIME
+};
+
+enum error_message {
+  ERR_NONE,
+  ERR_CONNECTION_LOST,
+  ERR_NETWORK_UNAIVAILABLE
 };
 
 
@@ -323,7 +329,13 @@ String page_builder(const String& var){
     }
 
     sl_table += "<tr>\n";
-    sl_table += "<td colspan=\"3\"><a href=\"/clear_syslog\">Delete all entries</a></td>";
+    sl_table += "<td colspan=\"3\"><a href=\"/clear_syslog\">Delete all entries</a> <small>[V";
+    sl_table += VERSION_MAJOR;
+    sl_table += ".";
+    sl_table += VERSION_MINOR;
+    sl_table += ".";
+    sl_table += VERSION_PATCH;    
+    sl_table += "]</small></td>\n";
     sl_table += "</tr>\n";  
     sl_table += "</table>";
 
@@ -371,14 +383,14 @@ void setup(){
   uint32_t log_count;
   Serial.begin(115200);
 
-  snprintf(header, 50, "Aeratron Remote Web Client (Firmware: %d.%d)", VERSION_MAJOR, VERSION_MINOR);
+  snprintf(header, 50, "Aeratron Remote Web Client (Firmware: %d.%d.%d)", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
   Serial.println( header );
   Serial.println( "==========================================" );
   Serial.println( "" );
 
   // initialize internal FS
   Serial.print("Mounting file system.. ");
-  if(!SPIFFS.begin()){
+  if(!SPIFFS.begin()) {
     Serial.println("An Error has occurred while mounting SPIFFS.");
     return;
   }
@@ -450,13 +462,14 @@ void setup(){
   Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
  
-  while ((WiFi.status() != WL_CONNECTED) && (attempts < 10)) {
+  // try to establish a network connection within 15 sec
+  while ((WiFi.status() != WL_CONNECTED) && (attempts < 30)) {
     delay(500);
     Serial.print(".");
     attempts++;
   }
   if (WiFi.status() != WL_CONNECTED){
-    Serial.println("Resetting ESP...");
+    Serial.println("Could not connect to network. Resetting ESP...");
     ESP.restart();
   }
   Serial.println(" Done.");
@@ -464,7 +477,7 @@ void setup(){
   Serial.print("Server address: ");
   Serial.println(WiFi.localIP());
 
-  // init and get the time
+  // get and set the time from NTP server
   configTime(GMT_OFFSET, DAYLIGHT_OFFSET, ntpServer);
   Serial.println(get_date(TIMEFORMAT_DAYDATE));
 
@@ -560,7 +573,9 @@ void setup(){
   
   server.begin();
 
-  write_syslog("Startup completed.");
+  err_cnt = 0;
+  err_msg = ERR_NONE;
+  write_syslog("Device up and running.");  
 }
 
 
@@ -569,28 +584,43 @@ void setup(){
  *********************************************************/
 void loop() {
   wl_status_t wifi_state;
-  static uint8_t err_cnt = 0;
 
   // checking for the WiFi connection regularly 
   wifi_state = WiFi.status();  
 
   switch (wifi_state)
   {
-    case WL_CONNECTED: err_cnt = 0; 
+    case WL_CONNECTED:  if (err_msg != ERR_NONE) {
+                          write_syslog("Re-established network connection."); 
+                          err_msg = ERR_NONE;
+                          err_cnt = 0;
+                        } 
+                        break;
     case WL_NO_SHIELD:
     case WL_IDLE_STATUS:
     case WL_NO_SSID_AVAIL:
     case WL_SCAN_COMPLETED: 
     case WL_CONNECT_FAILED: break;
-    case WL_CONNECTION_LOST: err_cnt++; write_syslog("Lost network connection."); break;
-    case WL_DISCONNECTED: err_cnt++; write_syslog("Disconnected from network."); break;
+    case WL_CONNECTION_LOST:  err_cnt++;
+                              if (err_msg != ERR_CONNECTION_LOST)
+                              {
+                                write_syslog("Lost network connection.");
+                                err_msg = ERR_CONNECTION_LOST;
+                              }
+                              break;
+    case WL_DISCONNECTED:     err_cnt++; 
+                              if (err_msg != ERR_NETWORK_UNAIVAILABLE)
+                              {
+                                write_syslog("Disconnected from network.");
+                                err_msg = ERR_NETWORK_UNAIVAILABLE;
+                              }
+                              break;
     default: write_syslog("Undefined network state detected."); break;
   }
 
-  // No connection for more than 20 sec. Restart ESP.
+  // no connection for more than 20 sec - restart ESP.
   if (err_cnt > 4)
   {
-    err_cnt = 0;
     write_syslog("Permanent fault detected. Going to restart ESP.");
     ESP.restart();
   }
@@ -675,7 +705,7 @@ void send_command ()
         digitalWrite(DATA_PIN, LOW); 
         delay(6);  
       }
-      delay(10);  
+      delay(12);  
     }
 }
 
@@ -695,8 +725,8 @@ String get_date(enum time_format tf)
       case TIMEFORMAT_DAYDATE: strftime(timeStringBuff, sizeof(timeStringBuff), "%A, %d. %B %Y", &timeinfo); break;
       case TIMEFORMAT_DATE: strftime(timeStringBuff, sizeof(timeStringBuff), "%d. %B %Y", &timeinfo); break;
       case TIMEFORMAT_DATE_SHORT: strftime(timeStringBuff, sizeof(timeStringBuff), "%d.%m.%Y", &timeinfo); break;
-      case TIMEFORMAT_TIME: strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M:%S", &timeinfo); break;
-      case TIMEFORMAT_DATETIME: strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%d %H:%M:%S", &timeinfo); break;
+      case TIMEFORMAT_TIME: strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M:%S UTC", &timeinfo); break;
+      case TIMEFORMAT_DATETIME: strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%d %H:%M:%S UTC", &timeinfo); break;
       default: strcpy(timeStringBuff, "Invalid time format");
     }       
   }

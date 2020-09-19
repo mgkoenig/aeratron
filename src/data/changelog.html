@@ -91,6 +91,26 @@
       Added json file support and enabled the syslog feature. 
     </td>
   </tr>
+  <tr>
+    <td>2.8</td>
+    <td>2020-09-17</td>
+    <td>mgkoenig</td>
+    <td>
+      Syncing the system time every two hours in order to keep 
+      the clock disciplined.  
+    </td>
+  </tr>
+  <tr>
+    <td>2.9</td>
+    <td>2020-09-19</td>
+    <td>mgkoenig</td>
+    <td>
+      Improved network fault detection. Instead of restarting the ESP 
+      on every single network failure, the new routine will try to 
+      re-establish a connection first. Only if this fails repeatedly 
+      the device will be restarted. 
+    </td>
+  </tr>
 </table>
 </center>
 

@@ -30,12 +30,15 @@
  * DEFINES
  *********************************************************/
 #define VERSION_MAJOR     2
-#define VERSION_MINOR     7
-#define VERSION_PATCH     8
+#define VERSION_MINOR     9
+#define VERSION_PATCH     5
 
-#define FAN_ADDRESS       0xF0
+#define FAN_ADDRESS       0xF0    // static fan address
 #define DATA_PIN          27
-#define LOG_ENTRY_MAX     10
+#define LOG_ENTRY_MAX     10      // max number of syslog entries
+#define FAULT_TOLERANCE   4       // going to restart after 4 detected errors in a row
+#define SYNC_TIME         7200    // given in seconds. time to re-sync the system time
+#define IDLE_TIME         6       // given in seconds. delay-time within the main loop
 
 #define GMT_OFFSET        0       // given in seconds (3600 for GMT+1)
 #define DAYLIGHT_OFFSET   0       // given in seconds (3600 for +1h summer time)
@@ -49,13 +52,14 @@ const char* password  = "YOUR_PASSWORD";
 const char* ntpServer = "pool.ntp.org";
 
 AsyncWebServer server(80);
-StaticJsonDocument<2000> syslog;    // allocate memory for about 10 syslog entries
+StaticJsonDocument<(200*LOG_ENTRY_MAX)> syslog;    // allocate memory for the syslog entries
 File syslogJsonFile;
 
 char fan_ctrl;
 char light_ctrl;
 uint8_t err_cnt;
-uint8_t err_msg;
+uint8_t prev_err;
+uint16_t sync_cnt;
 
 
 /**********************************************************
@@ -86,15 +90,19 @@ enum time_format {
   TIMEFORMAT_DAY,
   TIMEFORMAT_DAYDATE,
   TIMEFORMAT_DATE, 
+  TIMEFORMAT_DATE_ABBR,
   TIMEFORMAT_DATE_SHORT,
   TIMEFORMAT_TIME, 
   TIMEFORMAT_DATETIME
 };
 
 enum error_message {
-  ERR_NONE,
-  ERR_CONNECTION_LOST,
-  ERR_NETWORK_UNAIVAILABLE
+  ERR_NETWORK_NONE,
+  ERR_NETWORK_BUSY,
+  ERR_NETWORK_CONNECT_FAILED,
+  ERR_NETWORK_CONNECTION_LOST,
+  ERR_NETWORK_UNAIVAILABLE, 
+  ERR_NETWORK_UNKNOWN
 };
 
 
@@ -109,6 +117,8 @@ String get_date(enum time_format tf);
 void write_syslog(const char *evt);
 void clear_syslog();
 void write_logfile();
+void start_wifi();
+void error_handling(enum error_message err);
 
 
 /**********************************************************
@@ -175,9 +185,9 @@ const char changelog_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 /**********************************************************
  * PAGE BUILDER
  *********************************************************/
-String page_builder(const String& var){
-
-  if(var == "UI_DATE"){
+String page_builder(const String& var) 
+{
+  if(var == "UI_DATE") {
     String ui_date = "";
 
     ui_date += get_date(TIMEFORMAT_DATE_SHORT);
@@ -187,7 +197,7 @@ String page_builder(const String& var){
     return ui_date;
   }
 
-  if(var == "UI_VERSION"){
+  if(var == "UI_VERSION") {
     String ui_version = "";
     
     ui_version += VERSION_MAJOR;
@@ -199,7 +209,7 @@ String page_builder(const String& var){
     return ui_version;
   }
   
-  if(var == "CONTROL_PANEL"){
+  if(var == "CONTROL_PANEL") {
     String panel = "";
 
     if ((fan_ctrl & 0x0F) == FAN_SPEED_OFF) {
@@ -279,7 +289,7 @@ String page_builder(const String& var){
     return panel;
   }
 
-  if(var == "SYSLOG_TABLE"){
+  if(var == "SYSLOG_TABLE") {
     uint8_t i, idx, cnt;
     String sl_table = "";
 
@@ -343,7 +353,7 @@ String page_builder(const String& var){
   }
 
   /* FOR FUTURE USE
-  if(var == "CHANGELOG_TABLE"){
+  if(var == "CHANGELOG_TABLE") {
     uint8_t i;
     String cl_table = "";
 
@@ -376,16 +386,16 @@ String page_builder(const String& var){
 /**********************************************************
  * SETUP
  *********************************************************/
-void setup(){
+void setup() 
+{
   char header[50];
-  uint8_t attempts = 0;
   uint8_t log_index;
   uint32_t log_count;
   Serial.begin(115200);
 
   snprintf(header, 50, "Aeratron Remote Web Client (Firmware: %d.%d.%d)", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
   Serial.println( header );
-  Serial.println( "==========================================" );
+  Serial.println( "============================================" );
   Serial.println( "" );
 
   // initialize internal FS
@@ -399,6 +409,9 @@ void setup(){
   Serial.print("Initialize state variables.. ");
   fan_ctrl = 0x00;
   light_ctrl = 0x00;
+  sync_cnt = 0;
+  err_cnt = 0;
+  prev_err = ERR_NETWORK_NONE;
   Serial.println(" Done.");
 
   // Init pin
@@ -454,32 +467,18 @@ void setup(){
   log_index = syslog["index"];
   log_count = syslog["evtcnt"];
 
-  Serial.print("SysLog_Index = ");
-  Serial.println(log_index);
-  Serial.print("SysLog_EvtCnt = ");
-  Serial.println(log_count);
+  // just init wifi. state monitoring and error handling are done within the main loop
+  Serial.print("Connecting to WiFi.. ");
+  start_wifi();
+  Serial.print(" Done. [");
+  Serial.print(WiFi.localIP());
+  Serial.println("]");
  
-  Serial.print("Connecting to WiFi");
-  WiFi.begin(ssid, password);
- 
-  // try to establish a network connection within 15 sec
-  while ((WiFi.status() != WL_CONNECTED) && (attempts < 30)) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  if (WiFi.status() != WL_CONNECTED){
-    Serial.println("Could not connect to network. Resetting ESP...");
-    ESP.restart();
-  }
-  Serial.println(" Done.");
-
-  Serial.print("Server address: ");
-  Serial.println(WiFi.localIP());
-
-  // get and set the time from NTP server
+  Serial.print("Retrieving time an date.. ");
   configTime(GMT_OFFSET, DAYLIGHT_OFFSET, ntpServer);
-  Serial.println(get_date(TIMEFORMAT_DAYDATE));
+  Serial.print(" Done. [");
+  Serial.print(get_date(TIMEFORMAT_DATE_ABBR));
+  Serial.println("]");
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     //request->send(200, "text/plain", "Main Page.");
@@ -573,8 +572,6 @@ void setup(){
   
   server.begin();
 
-  err_cnt = 0;
-  err_msg = ERR_NONE;
   write_syslog("Device up and running.");  
 }
 
@@ -582,7 +579,8 @@ void setup(){
 /**********************************************************
  * LOOP
  *********************************************************/
-void loop() {
+void loop() 
+{
   wl_status_t wifi_state;
 
   // checking for the WiFi connection regularly 
@@ -590,42 +588,25 @@ void loop() {
 
   switch (wifi_state)
   {
-    case WL_CONNECTED:  if (err_msg != ERR_NONE) {
-                          write_syslog("Re-established network connection."); 
-                          err_msg = ERR_NONE;
-                          err_cnt = 0;
-                        } 
-                        break;
+    case WL_CONNECTED:        error_handling(ERR_NETWORK_NONE); break;
     case WL_NO_SHIELD:
     case WL_IDLE_STATUS:
     case WL_NO_SSID_AVAIL:
-    case WL_SCAN_COMPLETED: 
-    case WL_CONNECT_FAILED: break;
-    case WL_CONNECTION_LOST:  err_cnt++;
-                              if (err_msg != ERR_CONNECTION_LOST)
-                              {
-                                write_syslog("Lost network connection.");
-                                err_msg = ERR_CONNECTION_LOST;
-                              }
-                              break;
-    case WL_DISCONNECTED:     err_cnt++; 
-                              if (err_msg != ERR_NETWORK_UNAIVAILABLE)
-                              {
-                                write_syslog("Disconnected from network.");
-                                err_msg = ERR_NETWORK_UNAIVAILABLE;
-                              }
-                              break;
-    default: write_syslog("Undefined network state detected."); break;
+    case WL_SCAN_COMPLETED:   error_handling(ERR_NETWORK_BUSY); break;
+    case WL_CONNECT_FAILED:   error_handling(ERR_NETWORK_CONNECT_FAILED); break;
+    case WL_CONNECTION_LOST:  error_handling(ERR_NETWORK_CONNECTION_LOST); break;
+    case WL_DISCONNECTED:     error_handling(ERR_NETWORK_UNAIVAILABLE); break;
+    default:                  error_handling(ERR_NETWORK_UNKNOWN); break; 
   }
 
-  // no connection for more than 20 sec - restart ESP.
-  if (err_cnt > 4)
-  {
-    write_syslog("Permanent fault detected. Going to restart ESP.");
-    ESP.restart();
+  // sync the clock from time to time to avoid a drift 
+  sync_cnt++;
+  if (sync_cnt >= (SYNC_TIME / IDLE_TIME)) {
+    configTime(GMT_OFFSET, DAYLIGHT_OFFSET, ntpServer);
+    sync_cnt = 0;
   }
 
-  delay(6000);  
+  delay(1000 * IDLE_TIME);  
 }
 
 
@@ -656,8 +637,8 @@ void set_speed (enum fan_speed fs)
     case FAN_SPEED_3:
     case FAN_SPEED_4:
     case FAN_SPEED_5:
-    case FAN_SPEED_6: prev_speed = fs; break;
-    case FAN_SPEED_ON: fs = prev_speed; break;
+    case FAN_SPEED_6:   prev_speed = fs; break;
+    case FAN_SPEED_ON:  fs = prev_speed; break;
     case FAN_SPEED_OFF: break;  
   }
 
@@ -721,12 +702,13 @@ String get_date(enum time_format tf)
   {
     switch (tf)
     {
-      case TIMEFORMAT_DAY: strftime(timeStringBuff, sizeof(timeStringBuff), "%A", &timeinfo); break;
-      case TIMEFORMAT_DAYDATE: strftime(timeStringBuff, sizeof(timeStringBuff), "%A, %d. %B %Y", &timeinfo); break;
-      case TIMEFORMAT_DATE: strftime(timeStringBuff, sizeof(timeStringBuff), "%d. %B %Y", &timeinfo); break;
+      case TIMEFORMAT_DAY:        strftime(timeStringBuff, sizeof(timeStringBuff), "%A", &timeinfo); break;
+      case TIMEFORMAT_DAYDATE:    strftime(timeStringBuff, sizeof(timeStringBuff), "%A, %d. %B %Y", &timeinfo); break;
+      case TIMEFORMAT_DATE:       strftime(timeStringBuff, sizeof(timeStringBuff), "%d. %B %Y", &timeinfo); break;
+      case TIMEFORMAT_DATE_ABBR:  strftime(timeStringBuff, sizeof(timeStringBuff), "%d. %b. %Y", &timeinfo); break;
       case TIMEFORMAT_DATE_SHORT: strftime(timeStringBuff, sizeof(timeStringBuff), "%d.%m.%Y", &timeinfo); break;
-      case TIMEFORMAT_TIME: strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M:%S UTC", &timeinfo); break;
-      case TIMEFORMAT_DATETIME: strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%d %H:%M:%S UTC", &timeinfo); break;
+      case TIMEFORMAT_TIME:       strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M:%S UTC", &timeinfo); break;
+      case TIMEFORMAT_DATETIME:   strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%d %H:%M:%S UTC", &timeinfo); break;
       default: strcpy(timeStringBuff, "Invalid time format");
     }       
   }
@@ -743,13 +725,13 @@ void write_syslog(const char *evt)
   cnt = syslog["evtcnt"];
   cnt++;
   
-  if (cnt >= UINT32_MAX)
+  if (cnt >= (UINT32_MAX-1))
   {
     cnt = 1;
 
     syslog["entry"][idx]["id"] = cnt;
     syslog["entry"][idx]["date"] = get_date(TIMEFORMAT_DATETIME);
-    syslog["entry"][idx]["event"] = "Eventcounter overflow. Reset evtcnt to 1.";
+    syslog["entry"][idx]["event"] = "Event counter overflow. Reset evtcnt to 1.";
 
     cnt++;
     idx++;
@@ -783,7 +765,7 @@ void clear_syslog()
     for (i=0; i<LOG_ENTRY_MAX; i++)
     {
       syslog["entry"][i]["id"] = 0;
-      syslog["entry"][i]["date"] = "1970-01-01 00:00:00";
+      syslog["entry"][i]["date"] = "1970-01-01 00:00:00 UTC";
       syslog["entry"][i]["event"] = "no event";
     }
 
@@ -798,4 +780,63 @@ void write_logfile()
     Serial.println(F("Failed to write logfile!"));
   }
   syslogJsonFile.close();  
+}
+
+void start_wifi()
+{
+  uint8_t attempts = 0;
+
+  WiFi.disconnect();
+  //WiFi.mode(WIFI_AP_STA);
+  WiFi.begin(ssid, password);
+
+  while ((WiFi.status() != WL_CONNECTED) && (attempts < 30)) {
+    delay(500);
+    attempts++;
+  }
+}
+
+void error_handling(enum error_message err)
+{
+  char err_string[50]; 
+
+  switch (err)
+  {
+    case ERR_NETWORK_NONE:              if (err_cnt > 0) {
+                                          err_cnt = 0; 
+                                          sprintf(err_string, "Re-established network connection."); 
+                                        }
+                                        break;
+    case ERR_NETWORK_BUSY:              err_cnt++; 
+                                        sprintf(err_string, "Network module busy."); 
+                                        break;
+    case ERR_NETWORK_CONNECT_FAILED:    err_cnt++; 
+                                        sprintf(err_string, "Failed to connect to network."); 
+                                        start_wifi();
+                                        break;
+    case ERR_NETWORK_CONNECTION_LOST:   err_cnt++; 
+                                        sprintf(err_string, "Lost network connection."); 
+                                        start_wifi(); 
+                                        break;
+    case ERR_NETWORK_UNAIVAILABLE:      err_cnt++; 
+                                        sprintf(err_string, "Disconnected from network."); 
+                                        start_wifi(); 
+                                        break;
+    case ERR_NETWORK_UNKNOWN:           err_cnt++; 
+                                        sprintf(err_string, "Undefined network state discovered."); 
+                                        break;
+    default:                            err_cnt++; 
+                                        sprintf(err_string, "Unknown error occurred."); 
+                                        break;
+  }
+
+  if (err != prev_err) {
+    write_syslog(err_string);
+    prev_err = err;
+  }
+
+  if (err_cnt > FAULT_TOLERANCE) {
+    write_syslog("Permanent fault detected. Restarting ESP.");
+    ESP.restart();
+  }
 }

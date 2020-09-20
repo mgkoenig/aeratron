@@ -30,8 +30,8 @@
  * DEFINES
  *********************************************************/
 #define VERSION_MAJOR     2
-#define VERSION_MINOR     9
-#define VERSION_PATCH     5
+#define VERSION_MINOR     10
+#define VERSION_PATCH     6
 
 #define FAN_ADDRESS       0xF0    // static fan address
 #define DATA_PIN          27
@@ -39,7 +39,7 @@
 #define FAULT_TOLERANCE   4       // going to restart after 4 detected errors in a row
 #define SYNC_TIME         7200    // given in seconds. time to re-sync the system time
 #define IDLE_TIME         6       // given in seconds. delay-time within the main loop
-
+#define STR_BUFFER_LEN    60      // general string buffer length
 #define GMT_OFFSET        0       // given in seconds (3600 for GMT+1)
 #define DAYLIGHT_OFFSET   0       // given in seconds (3600 for +1h summer time)
 
@@ -126,9 +126,9 @@ void error_handling(enum error_message err);
  *********************************************************/
 const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html> 
 <html> 
-<meta name="viewport" content="width=device-width, initial-scale=1">
-            
+
 <head> 
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aeratron Fan Control</title> 
   <link rel="stylesheet" type="text/css" href="styles.css">
 </head> 
@@ -145,9 +145,9 @@ const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
 const char syslog_html[] PROGMEM = R"rawliteral(<!DOCTYPE html> 
 <html> 
-<meta name="viewport" content="width=device-width, initial-scale=1">
-            
+
 <head> 
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aeratron Syslog</title> 
   <link rel="stylesheet" type="text/css" href="styles.css">
 </head> 
@@ -161,12 +161,50 @@ const char syslog_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 </html>
 )rawliteral";
 
+const char confirm_syslog_deletion_html[] PROGMEM = R"rawliteral(<!DOCTYPE html> 
+<html> 
+
+<head> 
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aeratron Syslog</title> 
+  <link rel="stylesheet" type="text/css" href="styles.css">
+</head> 
+
+<body>
+<center>
+<h2>WARNING</h2><br>
+<p>This will delete all syslog entries irrevocable.</p>
+<p>Are you sure you want to continue?</p><br>
+%CONFIRM_SYSLOG_DELETION%
+</center>
+</body>
+</html>
+)rawliteral";
+
+const char syslog_deleted_html[] PROGMEM = R"rawliteral(<!DOCTYPE html> 
+<html> 
+            
+<head> 
+  %META_REDIRECTION%
+  <title>Aeratron Syslog</title> 
+  <link rel="stylesheet" type="text/css" href="styles.css">
+</head> 
+
+<body>
+<center>
+<p>All syslog entries have been deleted.</p>
+<p>You'll be forwarded shortly. If not, please %LINK_HOME%.</p>
+</center>
+</body>
+</html>
+)rawliteral";
+
 /* FOR FUTURE USE
 const char changelog_html[] PROGMEM = R"rawliteral(<!DOCTYPE html> 
 <html> 
-<meta name="viewport" content="width=device-width, initial-scale=1">
-            
+
 <head> 
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aeratron Syslog</title> 
   <link rel="stylesheet" type="text/css" href="styles.css">
 </head> 
@@ -339,7 +377,7 @@ String page_builder(const String& var)
     }
 
     sl_table += "<tr>\n";
-    sl_table += "<td colspan=\"3\"><a href=\"/clear_syslog\">Delete all entries</a> <small>[V";
+    sl_table += "<td colspan=\"3\"><a href=\"/confirm_deletion\">Delete all entries</a> <small>[V";
     sl_table += VERSION_MAJOR;
     sl_table += ".";
     sl_table += VERSION_MINOR;
@@ -350,6 +388,39 @@ String page_builder(const String& var)
     sl_table += "</table>";
 
     return sl_table;
+  }
+
+  if(var == "CONFIRM_SYSLOG_DELETION") {
+    String csd_panel = "";
+
+    csd_panel += "<button class=\"btn_state\" onclick=\"window.location.href='http://"; 
+    csd_panel += WiFi.localIP().toString();
+    csd_panel += "';\">Cancel</button>";
+    csd_panel += '\n';
+    csd_panel += "<button class=\"btn_state\" onclick=\"window.location.href='/clear_syslog';\">Delete</button><br>";
+
+    return csd_panel;
+  }
+
+  if(var == "META_REDIRECTION") {
+    String meta = "";
+
+    // redirect to start page after 3 seconds
+    meta += "<meta http-equiv=\"refresh\" content=\"3;url=http://"; 
+    meta += WiFi.localIP().toString();
+    meta += "\"/>";
+
+    return meta;
+  }
+
+  if(var == "LINK_HOME") {
+    String link = "";
+
+    link += "<a href=\"http://";
+    link += WiFi.localIP().toString();
+    link += "\">click here</a>";
+
+    return link;
   }
 
   /* FOR FUTURE USE
@@ -388,15 +459,18 @@ String page_builder(const String& var)
  *********************************************************/
 void setup() 
 {
-  char header[50];
+  char header[STR_BUFFER_LEN];
+  uint8_t i;
   uint8_t log_index;
   uint32_t log_count;
   Serial.begin(115200);
 
-  snprintf(header, 50, "Aeratron Remote Web Client (Firmware: %d.%d.%d)", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+  snprintf(header, STR_BUFFER_LEN, "Aeratron Remote Web Client (Firmware: %d.%d.%d)", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
   Serial.println( header );
-  Serial.println( "============================================" );
-  Serial.println( "" );
+  for (i=0; i<strlen(header); i++) {
+    Serial.print("=");
+  }  
+  Serial.print("\n\n");
 
   // initialize internal FS
   Serial.print("Mounting file system.. ");
@@ -474,7 +548,7 @@ void setup()
   Serial.print(WiFi.localIP());
   Serial.println("]");
  
-  Serial.print("Retrieving time an date.. ");
+  Serial.print("Retrieving time and date.. ");
   configTime(GMT_OFFSET, DAYLIGHT_OFFSET, ntpServer);
   Serial.print(" Done. [");
   Serial.print(get_date(TIMEFORMAT_DATE_ABBR));
@@ -505,9 +579,15 @@ void setup()
     request->send(SPIFFS, "/changelog.html", "text/html");
   });  
 
+  server.on("/confirm_deletion", HTTP_GET, [](AsyncWebServerRequest *request){
+    //request->send(200, "text/plain", "This is the confirm page.");
+    request->send_P(200, "text/html", confirm_syslog_deletion_html, page_builder);
+  });
+
   server.on("/clear_syslog", HTTP_GET, [](AsyncWebServerRequest *request){
     clear_syslog();
-    request->send(200, "text/plain", "All syslog entries deleted.");
+    //request->send(200, "text/plain", "All syslog entries deleted.");
+    request->send_P(200, "text/html", syslog_deleted_html, page_builder);
   });
  
   server.on("/fan-on", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -692,7 +772,7 @@ void send_command ()
 
 String get_date(enum time_format tf)
 {
-  char timeStringBuff[50];
+  char timeStringBuff[STR_BUFFER_LEN];
   struct tm timeinfo;
   
   if(!getLocalTime(&timeinfo)){
@@ -725,7 +805,7 @@ void write_syslog(const char *evt)
   cnt = syslog["evtcnt"];
   cnt++;
   
-  if (cnt >= (UINT32_MAX-1))
+  if (cnt >= (UINT32_MAX)-1)
   {
     cnt = 1;
 
@@ -798,7 +878,7 @@ void start_wifi()
 
 void error_handling(enum error_message err)
 {
-  char err_string[50]; 
+  char err_string[STR_BUFFER_LEN]; 
 
   switch (err)
   {

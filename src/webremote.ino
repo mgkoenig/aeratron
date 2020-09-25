@@ -31,7 +31,7 @@
  *********************************************************/
 #define VERSION_MAJOR     2
 #define VERSION_MINOR     10
-#define VERSION_PATCH     6
+#define VERSION_PATCH     9
 
 #define FAN_ADDRESS       0xF0    // static fan address
 #define DATA_PIN          27
@@ -878,35 +878,36 @@ void start_wifi()
 
 void error_handling(enum error_message err)
 {
-  char err_string[STR_BUFFER_LEN]; 
+  static char err_string[STR_BUFFER_LEN]; 
 
+  memset(err_string, 0, STR_BUFFER_LEN);
   switch (err)
   {
     case ERR_NETWORK_NONE:              if (err_cnt > 0) {
                                           err_cnt = 0; 
-                                          sprintf(err_string, "Re-established network connection."); 
+                                          strcpy(err_string, "Re-established network connection."); 
                                         }
                                         break;
     case ERR_NETWORK_BUSY:              err_cnt++; 
-                                        sprintf(err_string, "Network module busy."); 
+                                        strcpy(err_string, "Network module busy."); 
                                         break;
     case ERR_NETWORK_CONNECT_FAILED:    err_cnt++; 
-                                        sprintf(err_string, "Failed to connect to network."); 
+                                        strcpy(err_string, "Failed to connect to network."); 
                                         start_wifi();
                                         break;
     case ERR_NETWORK_CONNECTION_LOST:   err_cnt++; 
-                                        sprintf(err_string, "Lost network connection."); 
+                                        strcpy(err_string, "Lost network connection.");  
                                         start_wifi(); 
                                         break;
     case ERR_NETWORK_UNAIVAILABLE:      err_cnt++; 
-                                        sprintf(err_string, "Disconnected from network."); 
+                                        strcpy(err_string, "Disconnected from network."); 
                                         start_wifi(); 
                                         break;
     case ERR_NETWORK_UNKNOWN:           err_cnt++; 
-                                        sprintf(err_string, "Undefined network state discovered."); 
+                                        strcpy(err_string, "Undefined network state discovered."); 
                                         break;
     default:                            err_cnt++; 
-                                        sprintf(err_string, "Unknown error occurred."); 
+                                        strcpy(err_string, "Unknown error occurred."); 
                                         break;
   }
 

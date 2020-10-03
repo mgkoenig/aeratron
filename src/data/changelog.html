@@ -7,10 +7,14 @@
 <body>
 
 <center>
-<h2>Changelog</h2>
+<h2>Version History</h2>
 <br>
 
-<table>
+<table class=log>
+  <col style="width: 10%">
+  <col style="width: 15%">
+  <col style="width: 15%">
+  <col style="width: 60%">
   <tr>
     <th>Version</th>
     <th>Date</th>
@@ -30,7 +34,7 @@
     <td>2020-08-02</td>
     <td>mgkoenig</td>
     <td>
-      Redesign for a dynamic web server architecture. 
+      Redesign (with same features) for an asynchronous HTTP web server.      
     </td>
   </tr>
   <tr>
@@ -46,7 +50,7 @@
     <td>2020-08-10</td>
     <td>mgkoenig</td>
     <td>
-      Changed intervals of sending the RF commands <br>
+      Changed intervals of sending the RF commands 
       for a more reliable transmission.
     </td>
   </tr>
@@ -63,7 +67,7 @@
     <td>2020-09-05</td>
     <td>mgkoenig</td>
     <td>
-      Repeated checks (every 5s) of the current network state. <br>
+      Repeated checks (every 5s) of the current network state. 
       Reset ESP if not connected.
     </td>
   </tr>
@@ -118,6 +122,15 @@
     <td>
       Implemented a confirmation dialogue in order to avoid an 
       accidental deletion of all syslog entries. 
+    </td>
+  </tr>
+  <tr>
+    <td>2.11</td>
+    <td>2020-10-03</td>
+    <td>mgkoenig</td>
+    <td>
+      Created a general about page to get all system information at a glance. 
+      Added a reset option as well. 
     </td>
   </tr>
 </table>

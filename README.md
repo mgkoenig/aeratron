@@ -1,6 +1,6 @@
 # Aeratron Web Remote
 
-__IMPORTANT NOTE:__ This is an unofficial DIY devolpment of a web based remote control for [Aeratron](https://aeratron.com) ceiling fans. There is neither a whatsoever guarantee that this software is working properly nor of its completeness. 
+__IMPORTANT NOTE:__ This is an unofficial DIY devolpment of a web based remote control for [Aeratron](https://en.aeratron.io/) ceiling fans. There is neither a whatsoever guarantee that this software is working properly nor of its completeness. 
 
 ## Description
 This project implements a simple web interface to remote control your Aeratron AE2+ ceiling fan. The AE3+ model might also work but isn't tested.
